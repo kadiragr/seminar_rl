@@ -1,14 +1,3 @@
-# Seaquest - QR-DQN Experiments
-
-This project contains several QR-DQN experiments for the Atari game Seaquest.
-
-## Training
-
-All experiments are run using the same command structure:
-
-```bash
-python3 utils/train_custom.py --env SeaquestNoFrameskip-v4 --algo qrdqn --conf experiments/<CONFIG>.yml --seed <SEED>
-
-Example (baseline):
-
-python3 utils/train_custom.py --env SeaquestNoFrameskip-v4 --algo qrdqn --conf experiments/seaquest_baseline.yml --seed 123
+Seaquest - QR-DQN ExperimentsThis project contains several QR-DQN (Quantile Regression Deep Q-Network) experiments conducted on the Atari game Seaquest.TrainingAll experiments are executed using a standardized command structure. To run an experiment, use the following syntax:Bashpython3 utils/train_custom.py --env SeaquestNoFrameskip-v4 --algo qrdqn --conf experiments/<CONFIG>.yml --seed <SEED>
+Example (Baseline)Bashpython3 utils/train_custom.py --env SeaquestNoFrameskip-v4 --algo qrdqn --conf experiments/seaquest_baseline.yml --seed 123
+Note: Each experiment was trained across 20 different seeds (e.g., 123, 234, 345, ...) to ensure statistical relevance.Configuration FilesTo switch between different experimental setups, simply modify the --conf argument. The following configurations are available:FilenameDescriptionseaquest_baseline.ymlStandard QR-DQN settings.seaquest_reward.ymlModified reward structure.seaquest_actions_only_move_with_fire.ymlRestricted action space (movement combined with firing).seaquest_rewardandaction.ymlCombined modifications of rewards and actions.
