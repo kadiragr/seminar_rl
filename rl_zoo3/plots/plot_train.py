@@ -29,6 +29,16 @@ def plot_train():
     parser.add_argument("--no-display", action="store_true", help="Do not display the plot")
     parser.add_argument("--file_name", type=str, default="train_plot.png", help="File name to save the plot")
 
+    # NEW: highlight run name (folder contains this string)
+    parser.add_argument("--highlight", type=str, default="SeaquestNoFrameskip-v4_8",
+                        help="Substring of the run folder to highlight (others will be gray).")
+    parser.add_argument("--highlight-color", type=str, default="tab:blue",
+                        help="Matplotlib color for the highlighted run.")
+    parser.add_argument("--gray-alpha", type=float, default=0.45,
+                        help="Alpha for non-highlighted runs.")
+    parser.add_argument("--only-highlight-in-legend", action="store_true",
+                        help="Show only highlighted run(s) in the legend.")
+
     args = parser.parse_args()
 
     algo = args.algo
@@ -58,7 +68,6 @@ def plot_train():
     }[args.y_axis]
 
     dirs = []
-
     for env in envs:
         # Sort by last modification
         entries = sorted(os.scandir(log_path), key=lambda entry: entry.stat().st_mtime)
@@ -68,27 +77,64 @@ def plot_train():
     plt.title(y_label, fontsize=args.fontsize)
     plt.xlabel(f"{x_label}", fontsize=args.fontsize)
     plt.ylabel(y_label, fontsize=args.fontsize)
+
+    # Optional: grid slightly visible (looks cleaner)
+    plt.grid(alpha=0.15)
+
+    highlight = args.highlight
+
     for folder in dirs:
         try:
             data_frame = load_results(folder)
         except LoadMonitorResultsError:
             continue
+
         if args.max_timesteps is not None:
             data_frame = data_frame[data_frame.l.cumsum() <= args.max_timesteps]
+
         try:
             y = np.array(data_frame[y_axis])
         except KeyError:
             print(f"No data available for {folder}")
             continue
+
         x, _ = ts2xy(data_frame, x_axis)
 
         # Do not plot the smoothed curve at all if the timeseries is shorter than window size.
         if x.shape[0] >= args.episode_window:
-            # Compute and plot rolling mean with window of size args.episode_window
             x, y_mean = window_func(x, y, args.episode_window, np.mean)
-            plt.plot(x, y_mean, linewidth=2, label=folder.split("/")[-1])
 
-    plt.legend()
+            run_name = os.path.basename(folder)
+            is_highlight = (highlight in run_name)
+
+            if is_highlight:
+                color = args.highlight_color
+                lw = 2.4
+                alpha = 1.0
+                zorder = 3
+                label = run_name
+            else:
+                color = "gray"
+                lw = 1.2
+                alpha = float(args.gray_alpha)
+                zorder = 1
+                label = None if args.only_highlight_in_legend else run_name
+
+            plt.plot(
+                x,
+                y_mean,
+                linewidth=lw,
+                alpha=alpha,
+                color=color,
+                zorder=zorder,
+                label=label,
+            )
+
+    # Legend: only if at least one labeled line exists
+    handles, labels = plt.gca().get_legend_handles_labels()
+    if len(labels) > 0:
+        plt.legend()
+
     plt.tight_layout()
     if not args.no_display:
         plt.show()

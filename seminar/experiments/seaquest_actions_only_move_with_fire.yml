@@ -1,0 +1,12 @@
+SeaquestNoFrameskip-v4:
+  env_wrapper:
+    - stable_baselines3.common.atari_wrappers.AtariWrapper
+    - wrapper.seaquest_action_wrappers.SeaquestOnlyMoveWithFire
+
+  frame_stack: 4
+  policy: 'CnnPolicy'
+  n_timesteps: 8400000
+  learning_starts: 50000
+  exploration_fraction: 0.05
+  buffer_size: 200000
+  optimize_memory_usage: False

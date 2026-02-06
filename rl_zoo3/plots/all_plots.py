@@ -35,40 +35,67 @@ def all_plots():  # noqa: C901
     parser.add_argument("--no-million", action="store_true", default=False, help="Do not convert x-axis to million")
     parser.add_argument("--no-display", action="store_true", default=False, help="Do not show the plots")
     parser.add_argument(
-        "-print", "--print-n-trials", action="store_true", default=False, help="Print the number of trial for each result"
+        "-print",
+        "--print-n-trials",
+        action="store_true",
+        default=False,
+        help="Print the number of trial for each result",
     )
     parser.add_argument("--file_name", help="File name to save the figure", type=str, default="all_results.png")
     args = parser.parse_args()
 
-    # Activate seaborn
     seaborn.set()
+
     results = {}
     post_processed_results = {}
 
+    # If user does not provide algos, we still want one column/legend group
+    if args.algos is None or len(args.algos) == 0:
+        args.algos = ["RUNS"]
     args.algos = [algo.upper() for algo in args.algos]
 
     if args.labels is None:
         args.labels = args.exp_folders
 
+    # Auto-exclude folders by name
+    EXCLUDE = {"movenoshoot"}
+
+    # ✅ Fixed colors (consistent across all subset plots)
+    COLORS = {
+        "baseline": "tab:blue",
+        "action1": "tab:orange",
+        "reward": "tab:green",
+        "observ": "tab:red",
+    }
+
     for env in args.env:
-        plt.figure(f"Results {env}")
+        # ✅ breiteres Bild (Landscape)
+        plt.figure(f"Results {env}", figsize=(12, 5))
         plt.title(f"{env}", fontsize=14)
 
         x_label_suffix = "" if args.no_million else "(in Million)"
         plt.xlabel(f"Timesteps {x_label_suffix}", fontsize=14)
         plt.ylabel("Score", fontsize=14)
+
         results[env] = {}
         post_processed_results[env] = {}
 
         for algo in args.algos:
             for folder_idx, exp_folder in enumerate(args.exp_folders):
-                log_path = os.path.join(exp_folder, algo.lower())
+                # exp_folder is the DIRECT log root (e.g. seminar/logs/qrdqn/baseline)
+                log_path = exp_folder
+
+                base = os.path.basename(os.path.normpath(log_path)).lower()
+                if base in EXCLUDE:
+                    continue
 
                 if not os.path.isdir(log_path):
                     continue
 
-                results[env][f"{args.labels[folder_idx]}-{algo}"] = 0.0
+                label_name = str(args.labels[folder_idx])
+                results[env][f"{algo}-{label_name}"] = "0.0 +/- 0.0"
 
+                # Find all runs under log_path matching env name
                 dirs = [
                     os.path.join(log_path, d)
                     for d in os.listdir(log_path)
@@ -79,7 +106,8 @@ def all_plots():  # noqa: C901
                 merged_timesteps, merged_results = [], []
                 last_eval = []
                 timesteps = np.empty(0)
-                for _, dir_ in enumerate(dirs):
+
+                for dir_ in dirs:
                     try:
                         log = np.load(os.path.join(dir_, "evaluations.npz"))
                     except FileNotFoundError:
@@ -87,7 +115,6 @@ def all_plots():  # noqa: C901
                         continue
 
                     mean_ = np.squeeze(log["results"].mean(axis=1))
-
                     if mean_.shape == ():
                         continue
 
@@ -95,12 +122,11 @@ def all_plots():  # noqa: C901
                     if len(log["timesteps"]) >= max_len:
                         timesteps = log["timesteps"]
 
-                    # For post-processing
                     merged_timesteps.append(log["timesteps"])
                     merged_results.append(log[args.key])
 
                     # Truncate the plots
-                    while timesteps[max_len - 1] > args.max_timesteps:
+                    while max_len > 0 and timesteps[max_len - 1] > args.max_timesteps:
                         max_len -= 1
                     timesteps = timesteps[:max_len]
 
@@ -109,10 +135,7 @@ def all_plots():  # noqa: C901
                     else:
                         last_eval.append(log[args.key][-1])
 
-                # Merge runs with different eval freq:
-                # ex: (100,) eval vs (10,)
-                # in that case, downsample (100,) to match the (10,) samples
-                # Discard all jobs that are < min_timesteps
+                # Merge runs with different eval freq & discard short runs
                 if args.min_timesteps > 0:
                     min_ = np.inf
                     for n_timesteps in merged_timesteps:
@@ -120,26 +143,22 @@ def all_plots():  # noqa: C901
                             min_ = min(min_, len(n_timesteps))
                             if len(n_timesteps) == min_:
                                 max_len = len(n_timesteps)
-                                # Truncate the plots
-                                while n_timesteps[max_len - 1] > args.max_timesteps:
+                                while max_len > 0 and n_timesteps[max_len - 1] > args.max_timesteps:
                                     max_len -= 1
                                 timesteps = n_timesteps[:max_len]
-                    # Avoid modifying original aggregated results
+
                     merged_results_ = deepcopy(merged_results)
-                    # Downsample if needed
                     for trial_idx, n_timesteps in enumerate(merged_timesteps):
-                        # We assume they are the same, or they will be discarded in the next step
                         if len(n_timesteps) == min_ or n_timesteps[-1] < args.min_timesteps:
-                            pass
-                        else:
-                            new_merged_results = []
-                            # Nearest neighbour
-                            distance_mat = distance_matrix(n_timesteps.reshape(-1, 1), timesteps.reshape(-1, 1))
-                            closest_indices = distance_mat.argmin(axis=0)
-                            for closest_idx in closest_indices:
-                                new_merged_results.append(merged_results_[trial_idx][closest_idx])
-                            merged_results[trial_idx] = new_merged_results
-                            last_eval[trial_idx] = merged_results_[trial_idx][closest_indices[-1]]
+                            continue
+
+                        new_merged_results = []
+                        distance_mat = distance_matrix(n_timesteps.reshape(-1, 1), timesteps.reshape(-1, 1))
+                        closest_indices = distance_mat.argmin(axis=0)
+                        for closest_idx in closest_indices:
+                            new_merged_results.append(merged_results_[trial_idx][closest_idx])
+                        merged_results[trial_idx] = new_merged_results
+                        last_eval[trial_idx] = merged_results_[trial_idx][closest_indices[-1]]
 
                 # Remove incomplete runs
                 merged_results_tmp, last_eval_tmp = [], []
@@ -150,49 +169,36 @@ def all_plots():  # noqa: C901
                 merged_results = merged_results_tmp
                 last_eval = last_eval_tmp
 
-                # Post-process
-                if len(merged_results) > 0:
-                    # shape: (n_trials, n_eval * n_eval_episodes)
+                if len(merged_results) > 0 and max_len > 0:
                     merged_results = np.array(merged_results)
                     n_trials = len(merged_results)
                     n_eval = len(timesteps)
 
                     if args.print_n_trials:
-                        print(f"{env}-{algo}-{args.labels[folder_idx]}: {n_trials}")
+                        print(f"{env}-{algo}-{label_name}: {n_trials}")
 
-                    # reshape to (n_trials, n_eval, n_eval_episodes)
                     evaluations = merged_results.reshape((n_trials, n_eval, -1))
-                    # re-arrange to (n_eval, n_trials, n_eval_episodes)
                     evaluations = np.swapaxes(evaluations, 0, 1)
-                    # (n_eval,)
+
                     mean_ = np.mean(evaluations, axis=(1, 2))
-                    # (n_eval, n_trials)
                     mean_per_eval = np.mean(evaluations, axis=-1)
-                    # (n_eval,)
                     std_ = np.std(mean_per_eval, axis=-1)
-                    # std: error:
                     std_error = std_ / np.sqrt(n_trials)
-                    # Take last evaluation
-                    # shape: (n_trials, n_eval_episodes) to (n_trials,)
+
                     last_evals = np.array(last_eval).squeeze().mean(axis=-1)
-                    # Standard deviation of the mean performance for the last eval
                     std_last_eval = np.std(last_evals)
-                    # Compute standard error
                     std_error_last_eval = std_last_eval / np.sqrt(n_trials)
 
                     if args.median:
-                        results[env][f"{algo}-{args.labels[folder_idx]}"] = f"{np.median(last_evals):.0f}"
+                        results[env][f"{algo}-{label_name}"] = f"{np.median(last_evals):.0f}"
                     else:
-                        results[env][
-                            f"{algo}-{args.labels[folder_idx]}"
-                        ] = f"{np.mean(last_evals):.0f} +/- {std_error_last_eval:.0f}"
+                        results[env][f"{algo}-{label_name}"] = (
+                            f"{np.mean(last_evals):.0f} +/- {std_error_last_eval:.0f}"
+                        )
 
-                    # x axis in Millions of timesteps
-                    divider = 1e6
-                    if args.no_million:
-                        divider = 1.0
+                    divider = 1.0 if args.no_million else 1e6
 
-                    post_processed_results[env][f"{algo}-{args.labels[folder_idx]}"] = {
+                    post_processed_results[env][f"{algo}-{label_name}"] = {
                         "timesteps": timesteps,
                         "mean": mean_,
                         "std_error": std_error,
@@ -201,8 +207,23 @@ def all_plots():  # noqa: C901
                         "mean_per_eval": mean_per_eval,
                     }
 
-                    plt.plot(timesteps / divider, mean_, label=f"{algo}-{args.labels[folder_idx]}", linewidth=3)
-                    plt.fill_between(timesteps / divider, mean_ + std_error, mean_ - std_error, alpha=0.5)
+                    # ✅ fixed colors (based on label), thinner lines, nicer fill
+                    color = COLORS.get(label_name, None)
+
+                    plt.plot(
+                        timesteps / divider,
+                        mean_,
+                        label=f"{algo}-{label_name}",
+                        linewidth=1.5,
+                        color=color,
+                    )
+                    plt.fill_between(
+                        timesteps / divider,
+                        mean_ + std_error,
+                        mean_ - std_error,
+                        alpha=0.15,
+                        color=color,
+                    )
 
         plt.legend()
 
@@ -211,12 +232,8 @@ def all_plots():  # noqa: C901
     writer.table_name = "results_table"
 
     headers = ["Environments"]
+    value_matrix = [[] for _ in range(len(args.env) + 1)]
 
-    # One additional row for the subheader
-    value_matrix = [[] for i in range(len(args.env) + 1)]
-
-    headers = ["Environments"]
-    # Header and sub-header
     value_matrix[0].append("")
     for algo in args.algos:
         for label in args.labels:
@@ -230,7 +247,7 @@ def all_plots():  # noqa: C901
         for algo in args.algos:
             for label in args.labels:
                 key = f"{algo}-{label}"
-                value_matrix[i].append(f'{results[env].get(key, "0.0 +/- 0.0")}')
+                value_matrix[i].append(results[env].get(key, "0.0 +/- 0.0"))
 
     writer.value_matrix = value_matrix
     writer.write_table()
